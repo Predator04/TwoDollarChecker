@@ -130,6 +130,7 @@ public class MainActivity extends Activity {
         gradeGuideBtn.setOnClickListener(v -> showGradingGuide());
         settingsBtn.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
         renderCollection();
+        UpdateChecker.checkOnBoot(this);
     }
 
     @Override
