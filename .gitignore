@@ -1,0 +1,26 @@
+# Gradle
+.gradle/
+build/
+captures/
+
+# Local machine config (SDK path, API keys) — never commit
+local.properties
+apikey.properties
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Android
+*.apk
+*.aab
+*.keystore
+!gradle/wrapper/gradle-wrapper.jar
+.externalNativeBuild/
+.cxx/
