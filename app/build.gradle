@@ -17,8 +17,8 @@ android {
         applicationId "com.twodollar.checker"
         minSdk 21
         targetSdk 34
-        versionCode 14
-        versionName "4.1"
+        versionCode 15
+        versionName "4.2"
         buildConfigField "String", "OPENAI_KEY", "\"${apikeyProps.getProperty('OPENAI_KEY', '')}\""
     }
 

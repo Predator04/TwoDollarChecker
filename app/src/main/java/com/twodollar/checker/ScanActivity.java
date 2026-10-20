@@ -3,8 +3,11 @@ package com.twodollar.checker;
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.ImageFormat;
 import android.graphics.Rect;
+import android.graphics.YuvImage;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.VibrationEffect;
@@ -40,6 +43,7 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.ByteBuffer;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
@@ -139,7 +143,7 @@ public class ScanActivity extends ComponentActivity {
         // async work, so holding the ImageProxy across the OCR callback crashes.
         Bitmap bmp;
         try {
-            bmp = image.toBitmap();
+            bmp = imageToBitmap(image);
         } catch (Exception e) {
             image.close();
             return;
@@ -153,23 +157,57 @@ public class ScanActivity extends ComponentActivity {
                 .addOnFailureListener(e -> {});
     }
 
+    private Bitmap imageToBitmap(ImageProxy image) {
+        try {
+            return image.toBitmap();
+        } catch (Exception e) {
+            // some devices throw on toBitmap() — fall back to manual YUV→JPEG→Bitmap
+            try {
+                ImageProxy.PlaneProxy[] planes = image.getPlanes();
+                ByteBuffer yBuf = planes[0].getBuffer();
+                ByteBuffer uBuf = planes[1].getBuffer();
+                ByteBuffer vBuf = planes[2].getBuffer();
+                int ySize = yBuf.remaining();
+                int uSize = uBuf.remaining();
+                int vSize = vBuf.remaining();
+                byte[] nv21 = new byte[ySize + uSize + vSize];
+                yBuf.get(nv21, 0, ySize);
+                for (int i = 0; i < uSize && i < vSize; i++) {
+                    nv21[ySize + 2 * i] = vBuf.get(i);
+                    nv21[ySize + 2 * i + 1] = uBuf.get(i);
+                }
+                YuvImage yuv = new YuvImage(nv21, ImageFormat.NV21,
+                        image.getWidth(), image.getHeight(), null);
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                yuv.compressToJpeg(new Rect(0, 0, image.getWidth(), image.getHeight()), 90, out);
+                return BitmapFactory.decodeByteArray(out.toByteArray(), 0, out.size());
+            } catch (Exception e2) {
+                return null;
+            }
+        }
+    }
+
     private void onRecognized(Bitmap bmp, Text result) {
         String text = result.getText();
         String serial = extractSerial(text);
         String seriesText = extractSeriesText(text);
 
         if (serial == null) {
-            runOnUiThread(() -> setGuidance("🔍 Align the serial number in the box", AMBER));
+            runOnUiThread(() -> setGuidance("🔍 Show the whole $2 bill", AMBER));
             return;
         }
         if (serial.equals(lastSerial)) {
             runOnUiThread(() -> setGuidance("✓ " + serial + " saved — next bill", GREEN));
             return;
         }
-        Rect box = findSerialBox(result, serial);
-        String dir = guidanceFor(box, bmp.getWidth(), bmp.getHeight());
-        if (dir != null) {
-            runOnUiThread(() -> setGuidance(dir, AMBER));
+
+        // "full bill" = the bill's text fills a good chunk of the frame
+        Rect bill = billExtent(result);
+        int fw = bmp.getWidth();
+        int fh = bmp.getHeight();
+        boolean bigEnough = bill.width() >= fw * 0.40 || bill.height() >= fh * 0.40;
+        if (!bigEnough) {
+            runOnUiThread(() -> setGuidance("⬆ Move closer — get the whole bill in view", AMBER));
             return;
         }
 
@@ -251,14 +289,15 @@ public class ScanActivity extends ComponentActivity {
         return null;
     }
 
-    private Rect findSerialBox(Text result, String serial) {
-        if (serial == null) return null;
-        String digits = serial.replaceAll("[^0-9]", "");
+    private Rect billExtent(Text result) {
+        Rect u = null;
         for (Text.TextBlock block : result.getTextBlocks()) {
-            String t = block.getText() == null ? "" : block.getText().replaceAll("\\s", "");
-            if (t.contains(digits)) return block.getBoundingBox();
+            Rect b = block.getBoundingBox();
+            if (b == null) continue;
+            if (u == null) u = new Rect(b);
+            else u.union(b);
         }
-        return null;
+        return u == null ? new Rect() : u;
     }
 
     private String resolveSeries(String seriesText) {
@@ -280,19 +319,6 @@ public class ScanActivity extends ComponentActivity {
         if (y == 1918) return "1918 (Large Size)";
         String seal = y <= 1963 ? "Red Seal" : "Green Seal";
         return year + (letter.isEmpty() ? "" : letter) + " (" + seal + ")";
-    }
-
-    private String guidanceFor(Rect box, int fw, int fh) {
-        if (box == null) return "🔍 Align the serial number in the box";
-        Rect t = new Rect((int) (fw * 0.15), (int) (fh * 0.30),
-                (int) (fw * 0.85), (int) (fh * 0.55));
-        if (box.width() < t.width() * 0.30) return "⬆ Move closer";
-        if (box.width() > t.width() * 1.20) return "⬇ Move back (too close)";
-        if (box.centerX() < t.centerX() - t.width() * 0.18) return "➡ Move right";
-        if (box.centerX() > t.centerX() + t.width() * 0.18) return "⬅ Move left";
-        if (box.centerY() < t.centerY() - t.height() * 0.22) return "⬇ Move down";
-        if (box.centerY() > t.centerY() + t.height() * 0.22) return "⬆ Move up";
-        return null;
     }
 
     private int gradeIndex(String grade) {

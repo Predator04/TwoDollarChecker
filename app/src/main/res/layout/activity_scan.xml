@@ -58,7 +58,7 @@
         android:background="@drawable/pill_dark"
         android:gravity="center"
         android:padding="16dp"
-        android:text="🔍 Align the serial number in the box"
+        android:text="🔍 Show the whole $2 bill"
         android:textColor="#FFD54F"
         android:textSize="18sp"
         android:textStyle="bold" />
